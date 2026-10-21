@@ -9,7 +9,7 @@ FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS fetch
 
 ARG SOURCE_ARCHIVE
 COPY ${SOURCE_ARCHIVE} /tmp/src.tar.gz
-RUN mkdir -p /src && tar -xzf /tmp/src.tar.gz -C /src && rm /tmp/src.tar.gz
+RUN mkdir -p /src && tar -xzf /tmp/src.tar.gz -C /src --strip-components=1 && rm /tmp/src.tar.gz
 
 FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
 
