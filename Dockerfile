@@ -15,7 +15,7 @@ FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
 
 COPY --from=fetch /src /src
 WORKDIR /src
-RUN npm ci --no-audit --no-fund \
+RUN npm install --no-audit --no-fund \
     && npm run build \
     && mkdir -p /out \
     && cp -r *.html *.ico LICENSE evolve lib font strings wiki /out/
