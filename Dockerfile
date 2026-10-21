@@ -1,10 +1,20 @@
 # Evolve (evolveidle) static site image.
 # Upstream has no image and no release tags: build the game bundle from source
 # on top of a pinned node image, then serve it with nginx.
-FROM node:22-bookworm-slim AS builder
+#
+# The build context is this repository (it holds nginx.conf); the upstream
+# checkout is passed as a source tarball through the SOURCE_ARCHIVE build arg.
 
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS fetch
+
+ARG SOURCE_ARCHIVE
+COPY ${SOURCE_ARCHIVE} /tmp/src.tar.gz
+RUN mkdir -p /src && tar -xzf /tmp/src.tar.gz -C /src && rm /tmp/src.tar.gz
+
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
+
+COPY --from=fetch /src /src
 WORKDIR /src
-COPY . .
 RUN npm ci --no-audit --no-fund \
     && npm run build \
     && mkdir -p /out \

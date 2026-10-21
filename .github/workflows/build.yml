@@ -58,9 +58,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Checkout upstream source
+      - name: Fetch upstream source archive
         run: |
-          git clone --depth 1 "https://github.com/${UPSTREAM_REPO}.git" src
+          curl -fsSL --retry 3 \
+            "https://codeload.github.com/${UPSTREAM_REPO}/tar.gz/${{ needs.check.outputs.sha }}" \
+            -o upstream.tar.gz
+          tar -tzf upstream.tar.gz >/dev/null
+          echo "SOURCE_ARCHIVE=upstream.tar.gz" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -75,8 +79,10 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: src
+          context: .
           file: Dockerfile
+          build-args: |
+            SOURCE_ARCHIVE=upstream.tar.gz
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
