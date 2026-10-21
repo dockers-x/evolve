@@ -4,6 +4,10 @@
 #
 # The build context is this repository (it holds nginx.conf); the upstream
 # checkout is passed as a source tarball through the SOURCE_ARCHIVE build arg.
+#
+# esbuild ships a `node` shim in node_modules/.bin (its own node wrapper) which
+# `npm run` puts on PATH and which breaks the build, so the toolchain is invoked
+# directly from node_modules instead of through package.json scripts.
 
 FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS fetch
 
@@ -15,10 +19,14 @@ FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
 
 COPY --from=fetch /src /src
 WORKDIR /src
-RUN npm install --no-audit --no-fund --omit=optional \
-    && npm run build \
-    && mkdir -p /out \
-    && cp -r *.html *.ico LICENSE evolve lib font strings wiki /out/
+RUN set -eux; \
+    npm install --no-audit --no-fund --omit=optional; \
+    /usr/local/bin/node buildEvolve.js; \
+    /usr/local/bin/node buildWiki.js; \
+    ./node_modules/.bin/lessc src/evolve.less evolve/evolve.css; \
+    ./node_modules/.bin/lessc src/wiki/wiki.less wiki/wiki.css; \
+    mkdir -p /out; \
+    cp -r *.html *.ico LICENSE evolve lib font strings wiki /out/
 
 FROM nginx:1.27-alpine
 
