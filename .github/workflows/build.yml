@@ -1,0 +1,92 @@
+name: Build Evolve image
+
+on:
+  schedule:
+    # Follow upstream commits daily; build only when master moved past the last build.
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  UPSTREAM_REPO: pmotschmann/Evolve
+  IMAGE: ghcr.io/dockers-x/evolve
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.ver.outputs.sha }}
+      version: ${{ steps.ver.outputs.version }}
+      skip: ${{ steps.ver.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve upstream commit
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA=$(gh api "repos/$UPSTREAM_REPO/commits/master" -q .sha)
+          VERSION=$(gh api "repos/$UPSTREAM_REPO/contents/package.json?ref=$SHA" \
+            -q '.content' | base64 -d | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          echo "upstream=$SHA version=$VERSION"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "package.json version is not semver"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          if [ "${{ github.event_name }}" = "schedule" ] && \
+             git ls-remote --tags origin "refs/tags/src-$SHA" | grep -q .; then
+            echo "upstream commit $SHA already built"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: check
+    if: needs.check.outputs.skip != 'true' && needs.check.outputs.sha != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout upstream source
+        run: |
+          git clone --depth 1 "https://github.com/${UPSTREAM_REPO}.git" src
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: src
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.IMAGE }}:v${{ needs.check.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Record built upstream commit
+        if: github.event_name != 'pull_request'
+        run: |
+          git tag "src-${{ needs.check.outputs.sha }}"
+          git push origin "src-${{ needs.check.outputs.sha }}"
